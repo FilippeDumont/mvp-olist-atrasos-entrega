@@ -287,7 +287,8 @@ mvp_olist/
 
 ### 5.7 Evidências de execução na nuvem
 
-__EVIDENCIAS__
+<!-- EVIDENCIAS -->
+*Seção em atualização: as capturas da execução no Google Colab e da persistência no Google Drive serão adicionadas em [`evidencias/colab/`](evidencias/colab/).*
 
 ---
 
