@@ -10,7 +10,7 @@
 > qualidade → análise) sobre cerca de 100 mil pedidos do marketplace Olist, para testar uma hipótese
 > de negócio: *o atraso na entrega é o principal fator de insatisfação do cliente e se concentra em
 > padrões que podem ser gerenciados.* Os resultados confirmam a maior parte da hipótese:
-> - o atraso multiplica por **18** a chance de nota baixa;
+> - com atraso, a nota baixa sobe de **9%** para **62%** dos pedidos (razão de chances de **18**, controlando outros fatores);
 > - os atrasos se concentram no **Nordeste e no Rio de Janeiro**, em **picos de demanda** e em
 >   **choques externos**;
 > - **72%** dos atrasos acontecem mesmo com o vendedor postando no prazo, o que aponta o
@@ -375,7 +375,7 @@ Todas as tabelas, testes e gráficos estão no notebook [`05_analise`](notebooks
 - O cliente **pune o atraso, mas não premia a antecipação**: entregar 15 dias antes rende a mesma
   nota que entregar 1 semana antes, com cerca de 9% de notas baixas.
 - Na **regressão logística**, controlando valor, participação do frete, número de itens e de vendedores e região, o
-  atraso multiplica a chance de nota baixa por **18,3** (IC 95%: 17,3–19,4). É o maior efeito do
+  a razão de chances (*odds ratio*) de nota baixa com atraso é **18,3** (IC 95%: 17,3–19,4). É o maior efeito do
   modelo, à frente de pedidos com vários vendedores (3,5) ou vários itens (2,7).
 - Depois de controlar o atraso, a região do cliente **perde relevância**: a insatisfação regional
   passa *pelo* atraso.
@@ -463,8 +463,8 @@ Todas as tabelas, testes e gráficos estão no notebook [`05_analise`](notebooks
 
 A hipótese central foi **confirmada em sua maior parte**, com nuances que mudam a recomendação:
 
-1. **O atraso é o principal fator de insatisfação medido.** Ele multiplica por cerca de 18 a chance de
-   nota baixa, e a antecipação não compensa (P1).
+1. **O atraso é o principal fator de insatisfação medido.** Com ele, a nota baixa sobe de 9% para
+   62% dos pedidos (razão de chances de 18,3), e a antecipação não compensa (P1).
 2. **O atraso não é aleatório.** Ele se concentra em **destinos** (Nordeste e RJ, mesmo com distâncias
    iguais), em **períodos** (Black Friday e choques externos) e em **um elo**, o transporte (P2–P4).
 3. **O atraso é gerenciável, mas não pelo caminho intuitivo.** O vendedor não é o principal culpado
