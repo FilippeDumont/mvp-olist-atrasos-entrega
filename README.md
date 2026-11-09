@@ -2,7 +2,7 @@
 
 **Universidade de Brasília · Departamento de Engenharia de Produção**
 **Aluno:** Filippe Dumont Lana (202024526) · **Professor:** André Luiz Marques Serrano
-**Plataforma:** Google Colab (processamento) + Google Drive (persistência) · PySpark 3.5 + Delta Lake 3.2
+**Plataforma:** projetado para Google Colab + Google Drive · executado em VM Linux em nuvem ([nota](#2-plataforma-e-arquitetura)) · PySpark 3.5 + Delta Lake 3.2
 
 [![Abrir o pipeline no Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/FilippeDumont/mvp-olist-atrasos-entrega/blob/main/notebooks/00_pipeline.ipynb)
 
@@ -74,7 +74,7 @@ ao cliente, e o seu efeito sobre a **nota de avaliação** (de 1 a 5).
 
 | Dimensão | Pergunta | Evidência neste trabalho |
 |---|---|---|
-| Viabilidade técnica | A solução pode ser construída com a tecnologia disponível? | Pipeline executado ponta a ponta no Colab, com dados persistidos no Google Drive ([evidências](#57-evidências-de-execução-na-nuvem)) |
+| Viabilidade técnica | A solução pode ser construída com a tecnologia disponível? | Pipeline executado ponta a ponta em nuvem, duas vezes, com 25 cargas e todas as verificações aprovadas ([evidências](#57-evidências-de-execução-na-nuvem)) |
 | Viabilidade financeira | É economicamente sustentável? | Custo zero de infraestrutura: Colab gratuito e Drive com 15 GB gratuitos para 126 MB brutos e 120 MB no lakehouse |
 | Desejabilidade | É o que o "usuário", a operação do marketplace, precisa? | Perguntas ligadas a decisões concretas, respondidas com dados e um plano de ação ([6.3](#63-discussão-geral)) |
 
@@ -115,6 +115,16 @@ renomeação atômica que o protocolo de commit exige, e em seguida sincronizada
 Delta são imutáveis, então a sincronização preserva o histórico de versões. Detalhes em
 [`scripts/common.py`](scripts/common.py).
 
+> **Nota de transparência sobre o ambiente de execução.** O pipeline foi projetado para o Google Colab,
+> com persistência no Google Drive. Em 09/11/2026, porém, o Colab gratuito não alocou máquina
+> (*"Não há back-ends disponíveis"*) em sucessivas tentativas, em dois navegadores diferentes.
+> Para não atrasar a entrega, **o mesmo código foi executado em uma máquina virtual Linux em nuvem,
+> fora do Colab**, com PySpark 3.5 e Delta Lake 3.2. O lakehouse ficou gravado no disco persistente
+> dessa VM, e os artefatos de controle (manifesto da coleta, log das cargas e indicadores) foram
+> gravados no Google Drive, em `MyDrive/mvp_olist/`. As saídas que aparecem nos notebooks e as
+> evidências da seção [5.7](#57-evidências-de-execução-na-nuvem) são dessa execução real. Os notebooks
+> continuam prontos para o Colab: pelo botão "Abrir no Colab", o lakehouse completo é gravado no Drive.
+
 ---
 
 ## 3. Busca e coleta dos dados
@@ -139,7 +149,8 @@ Essas são exatamente as variáveis que as perguntas P1–P6 exigem.
 ### 3.2 Procedimento de coleta ([`01_coleta`](notebooks/01_coleta.ipynb))
 
 1. **Download:** primeiro tenta a fonte oficial, via biblioteca `kagglehub`. Sem acesso ao Kaggle,
-   usa um espelho público dos mesmos arquivos.
+   usa um espelho público dos mesmos arquivos. Na execução de 09/11/2026, a VM não tinha a biblioteca
+   `kagglehub`, então foi usado o espelho, e os 9 arquivos passaram no contrato.
 2. **Validação contra um contrato de dados:** cada arquivo precisa ter **exatamente** o número de
    linhas e as colunas oficiais. Qualquer divergência interrompe o pipeline.
 3. **Manifesto:** registra data da coleta, fonte usada, tamanho, **SHA-256**, linhas e colunas de
@@ -268,12 +279,13 @@ O notebook 03 **interrompe o pipeline** se alguma das verificações falhar:
 ### 5.5 Log de execução
 
 Cada etapa grava uma linha na tabela Delta `logs/pipeline_log`, com `run_id`, etapa, destino, linhas,
-duração e status. Uma execução completa produz **25 registros**, um por tabela gravada, e leva de
-5 a 15 minutos, dependendo da máquina do Colab.
+duração, status e ambiente. Uma execução completa produz **25 registros**, um por tabela gravada. Na execução
+de 09/11/2026, o pipeline completo levou **4,4 minutos**.
 
 ### 5.6 Persistência na nuvem
 
-Estrutura final no Google Drive (`MyDrive/mvp_olist/`):
+Estrutura do lakehouse (no Colab, em `MyDrive/mvp_olist/`; na execução de 09/11/2026, no disco persistente
+da VM, com os artefatos de controle copiados para o Google Drive):
 
 ```
 mvp_olist/
@@ -287,8 +299,36 @@ mvp_olist/
 
 ### 5.7 Evidências de execução na nuvem
 
-<!-- EVIDENCIAS -->
-*Seção em atualização: as capturas da execução no Google Colab e da persistência no Google Drive serão adicionadas em [`evidencias/colab/`](evidencias/colab/).*
+Capturas das **saídas reais** dos notebooks executados em 09/11/2026 na VM Linux em nuvem (ver a nota da seção 2).
+Os notebooks com todas as saídas estão em [`notebooks/`](notebooks/).
+
+**E1 · Coleta validada contra o contrato de dados:** 9 de 9 arquivos com as contagens e colunas oficiais (notebook 01).
+
+![E1](evidencias/execucao/e1_coleta_validacao.png)
+
+**E2 · Log do pipeline:** as 25 cargas da execução orquestrada, todas com SUCESSO (notebook 00).
+
+![E2](evidencias/execucao/e2_log_pipeline.png)
+
+**E3 · Lakehouse persistido:** camadas raw, bronze, silver, gold e logs, com o tamanho de cada tabela (notebook 00).
+
+![E3](evidencias/execucao/e3_lakehouse_persistido.png)
+
+**E4 · Histórico de versões Delta da `fato_pedido`:** a carga gravada como versão do Delta Lake (notebook 00).
+
+![E4](evidencias/execucao/e4_historico_delta.png)
+
+**E5 · Verificações de carga:** unicidade do grão e integridade das 7 chaves estrangeiras (notebook 03).
+
+![E5](evidencias/execucao/e5_verificacoes_carga.png)
+
+**E6 · Conclusão do pipeline ponta a ponta:** última etapa e tempo total (notebook 00).
+
+![E6](evidencias/execucao/e6_pipeline_concluido.png)
+
+**Artefatos gravados no Google Drive** (`MyDrive/mvp_olist/`): `manifesto_coleta.json` (data, fonte e SHA-256
+da coleta), `pipeline_log.csv` (as duas execuções completas, 50 cargas) e `resultados_indicadores.csv`
+(os 68 indicadores das perguntas P1–P6).
 
 ---
 
@@ -468,6 +508,8 @@ resultados contrários estão registrados:
 - A regra que a Olist usa para calcular a data prometida não é conhecida, o que limita a P5.
 
 **3. O que faria diferente se recomeçasse?**
+- Teria um **plano B de plataforma** pronto desde o início. A falta de máquina no Colab gratuito no dia
+  da execução mostrou que depender de um único ambiente gratuito é um risco operacional real.
 - O volume (cerca de 100 mil pedidos) caberia em **pandas ou DuckDB**. O Spark foi mantido pela
   escalabilidade e pela aderência à disciplina, mas acrescenta cerca de 1 a 2 minutos de
   inicialização no Colab.
@@ -512,7 +554,7 @@ lê do Drive o que a etapa anterior persistiu. Nenhuma credencial é necessária
 │   ├── 04_qualidade.ipynb       ← qualidade por atributo e conformidade ao catálogo
 │   └── 05_analise.ipynb         ← P1–P6, testes estatísticos, gráficos, discussão
 ├── scripts/
-│   ├── common.py                ← Spark + Delta, persistência no Drive, log do pipeline
+│   ├── common.py                ← Spark + Delta, persistência, log do pipeline
 │   ├── graficos.py              ← padrão visual dos gráficos
 │   └── gerar_catalogo.py        ← gera o catálogo a partir do YAML
 ├── catalogo/
@@ -522,7 +564,7 @@ lê do Drive o que a etapa anterior persistiu. Nenhuma credencial é necessária
 │   └── linhagem.png             ← diagrama da linhagem
 └── evidencias/
     ├── graficos/                ← 8 gráficos das respostas (P1–P6)
-    └── colab/                   ← capturas da execução no Colab e da persistência no Drive
+    └── execucao/                ← capturas das saídas reais da execução (E1–E6)
 ```
 
 ---

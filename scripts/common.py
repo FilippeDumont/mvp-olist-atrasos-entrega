@@ -44,6 +44,8 @@ else:  # execução local de teste: simula o Drive em uma pasta
     LOCAL_BASE = os.environ.get("MVP_LOCAL_BASE", os.path.expanduser(f"~/{PROJECT}_work"))
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))  # raiz do repositório
+AMBIENTE = "Google Colab" if IN_COLAB else os.environ.get("MVP_AMBIENTE", "execução local")
+ARMAZENAMENTO = "Google Drive" if IN_COLAB else os.environ.get("MVP_ARMAZENAMENTO", "disco local")
 RAW_DIR = f"{CLOUD_BASE}/raw"         # zona de pouso: CSVs originais + manifesto
 LAYERS = ("bronze", "silver", "gold")
 LOG_TABLE = ("logs", "pipeline_log")
@@ -192,7 +194,7 @@ class Stage:
                   inicio_utc=self.started.replace(tzinfo=None),
                   duracao_s=round(time.time() - self.t0, 2),
                   linhas=int(self.rows) if self.rows is not None else None,
-                  status=status, ambiente="colab" if IN_COLAB else "local")
+                  status=status, ambiente=AMBIENTE)
         spark = get_spark()
         schema = ("run_id string, etapa string, destino string, inicio_utc timestamp, "
                   "duracao_s double, linhas long, status string, ambiente string")
@@ -212,6 +214,6 @@ def save_json(obj, path: str) -> None:
 def banner(title: str) -> None:
     print("=" * 78)
     print(title)
-    print(f"Ambiente: {'Google Colab' if IN_COLAB else 'local'} | run_id: {RUN_ID}")
-    print(f"Persistência em nuvem: {CLOUD_BASE}")
+    print(f"Ambiente: {AMBIENTE} | run_id: {RUN_ID}")
+    print(f"Persistência ({ARMAZENAMENTO}): {CLOUD_BASE}")
     print("=" * 78)
