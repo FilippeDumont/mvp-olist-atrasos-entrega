@@ -1,0 +1,123 @@
+# =============================================================================
+# Catálogo de Dados — camada Gold (Esquema Estrela)
+# -----------------------------------------------------------------------------
+# Fonte única de verdade dos metadados do modelo. Este arquivo é usado para:
+#   (1) gerar o documento catalogo/catalogo_dados.md;
+#   (2) verificar automaticamente a conformidade dos dados ao domínio declarado
+#       (notebook 04_qualidade).
+#
+# Campos por atributo:
+#   tipo         numérico | categórico | texto | data | booleano | chave
+#   descricao    o que o atributo representa no domínio do problema
+#   dominio      {min, max} esperados (numéricos), {categorias} válidas, ou {regex}
+#   obrigatorio  true = não admite nulo
+#   nulo         o que a ausência significa (quando obrigatorio = false)
+#   linhagem     origem (tabela.coluna na Bronze) e transformações (regras R/G)
+#
+# Os domínios são EXPECTATIVAS DE NEGÓCIO definidas a priori, e não os valores
+# observados. Valores fora do domínio são reportados como problemas de
+# conformidade ou acurácia na análise de qualidade.
+# =============================================================================
+
+fonte:
+  conjunto: Brazilian E-Commerce Public Dataset by Olist
+  url: https://www.kaggle.com/datasets/olistbr/brazilian-ecommerce
+  licenca: CC BY-NC-SA 4.0
+  periodo: 2016-09 a 2018-10
+  coleta: notebooks/01_coleta.ipynb (data, volume e checksums em raw/manifesto_coleta.json)
+
+tabelas:
+
+  fato_pedido:
+    descricao: Tabela fato. Grão = 1 pedido (todos os status). Medidas de valor, prazo, atraso, distância e satisfação.
+    chave: pedido_id
+    atributos:
+      pedido_id: {tipo: chave, descricao: Identificador do pedido (hash anonimizado), dominio: {regex: "^[0-9a-f]{32}$"}, obrigatorio: true, linhagem: "bronze.orders.order_id"}
+      sk_cliente: {tipo: chave, descricao: Chave estrangeira para dim_cliente, dominio: {min: 1, max: 1000000}, obrigatorio: true, linhagem: "G08 sobre bronze.orders.customer_id"}
+      sk_vendedor: {tipo: chave, descricao: "Chave estrangeira para dim_vendedor (vendedor principal, G01); -1 = pedido sem itens", dominio: {min: -1, max: 1000000}, obrigatorio: true, linhagem: "G01, G02, G08 sobre bronze.order_items.seller_id"}
+      sk_produto: {tipo: chave, descricao: "Chave estrangeira para dim_produto (produto principal, G01); -1 = pedido sem itens", dominio: {min: -1, max: 1000000}, obrigatorio: true, linhagem: "G01, G02, G08 sobre bronze.order_items.product_id"}
+      sk_data_compra: {tipo: chave, descricao: "Data da compra (aaaammdd) -> dim_tempo", dominio: {min: 20160101, max: 20181231}, obrigatorio: true, linhagem: "bronze.orders.order_purchase_timestamp (R01)"}
+      sk_data_prometida: {tipo: chave, descricao: "Data de entrega prometida ao cliente (aaaammdd) -> dim_tempo", dominio: {min: 20160101, max: 20181231}, obrigatorio: true, linhagem: "bronze.orders.order_estimated_delivery_date (R01)"}
+      sk_data_entrega: {tipo: chave, descricao: "Data da entrega efetiva (aaaammdd) -> dim_tempo; -1 = não entregue", dominio: {min: -1, max: 20181231}, obrigatorio: true, linhagem: "bronze.orders.order_delivered_customer_date (R01, G02)"}
+      status: {tipo: categórico, descricao: Situação do pedido no momento da extração, dominio: {categorias: [created, approved, invoiced, processing, shipped, delivered, canceled, unavailable]}, obrigatorio: true, linhagem: "bronze.orders.order_status (R03)"}
+      qtd_itens: {tipo: numérico, descricao: Número de itens do pedido, dominio: {min: 0, max: 30}, obrigatorio: true, linhagem: "contagem de bronze.order_items por pedido"}
+      qtd_vendedores: {tipo: numérico, descricao: Número de vendedores distintos no pedido, dominio: {min: 0, max: 10}, obrigatorio: true, linhagem: "contagem distinta de bronze.order_items.seller_id"}
+      valor_produtos: {tipo: numérico, descricao: Soma dos preços dos itens (R$), dominio: {min: 0.01, max: 15000}, obrigatorio: false, nulo: pedido sem itens, linhagem: "soma de bronze.order_items.price"}
+      valor_frete: {tipo: numérico, descricao: Soma do frete dos itens (R$), dominio: {min: 0, max: 2000}, obrigatorio: false, nulo: pedido sem itens, linhagem: "soma de bronze.order_items.freight_value"}
+      valor_pago: {tipo: numérico, descricao: Soma de todos os pagamentos do pedido (R$), dominio: {min: 0.01, max: 15000}, obrigatorio: false, nulo: pedido sem pagamento registrado, linhagem: "G09: soma de bronze.order_payments.payment_value"}
+      tipo_pagamento: {tipo: categórico, descricao: Meio de pagamento de maior valor no pedido, dominio: {categorias: [credit_card, boleto, voucher, debit_card]}, obrigatorio: false, nulo: pedido sem pagamento registrado, linhagem: "G09 sobre bronze.order_payments.payment_type"}
+      parcelas: {tipo: numérico, descricao: Maior número de parcelas entre os pagamentos do pedido, dominio: {min: 1, max: 24}, obrigatorio: false, nulo: pedido sem pagamento registrado, linhagem: "G09 sobre bronze.order_payments.payment_installments"}
+      horas_aprovacao: {tipo: numérico, descricao: Horas entre a compra e a aprovação do pagamento, dominio: {min: 0, max: 720}, obrigatorio: false, nulo: "não aprovado ou inconsistência temporal (G06)", linhagem: "orders.order_approved_at - order_purchase_timestamp"}
+      dias_ate_postagem: {tipo: numérico, descricao: Dias entre a compra e a entrega do pacote à transportadora, dominio: {min: 0, max: 60}, obrigatorio: false, nulo: "não postado ou inconsistência temporal (G06)", linhagem: "orders.order_delivered_carrier_date - order_purchase_timestamp"}
+      dias_transporte: {tipo: numérico, descricao: Dias entre a postagem e a entrega ao cliente (trecho da transportadora), dominio: {min: 0, max: 90}, obrigatorio: false, nulo: "não entregue ou inconsistência temporal (G06)", linhagem: "orders.order_delivered_customer_date - order_delivered_carrier_date"}
+      dias_entrega: {tipo: numérico, descricao: Prazo total efetivo da compra até a entrega, dominio: {min: 0, max: 120}, obrigatorio: false, nulo: "não entregue ou inconsistência temporal (G06)", linhagem: "orders.order_delivered_customer_date - order_purchase_timestamp"}
+      dias_prometidos: {tipo: numérico, descricao: Prazo prometido ao cliente no ato da compra (dias corridos), dominio: {min: 1, max: 90}, obrigatorio: true, linhagem: "orders.order_estimated_delivery_date - data(order_purchase_timestamp)"}
+      dias_atraso: {tipo: numérico, descricao: "Data da entrega menos data prometida; negativo = adiantado (folga)", dominio: {min: -90, max: 120}, obrigatorio: false, nulo: "pedido não entregue de forma válida", linhagem: "G03"}
+      flag_atraso: {tipo: booleano, descricao: "Pedido entregue depois da data prometida (dias_atraso > 0)", dominio: {categorias: [true, false]}, obrigatorio: false, nulo: "pedido não entregue de forma válida", linhagem: "G03"}
+      flag_postagem_atrasada: {tipo: booleano, descricao: Vendedor entregou à transportadora depois do prazo-limite de postagem, dominio: {categorias: [true, false]}, obrigatorio: false, nulo: "não postado ou inconsistência temporal", linhagem: "G04: orders.order_delivered_carrier_date > max(order_items.shipping_limit_date)"}
+      distancia_km: {tipo: numérico, descricao: Distância em linha reta entre os CEPs do vendedor principal e do cliente, dominio: {min: 0, max: 4500}, obrigatorio: false, nulo: "CEP sem coordenada ou pedido sem itens", linhagem: "G05 (Haversine) sobre silver.geolocalizacao_cep (R05)"}
+      mesma_uf: {tipo: booleano, descricao: Vendedor principal e cliente estão na mesma UF, dominio: {categorias: [true, false]}, obrigatorio: false, nulo: pedido sem itens, linhagem: "customers.customer_state = sellers.seller_state"}
+      nota_avaliacao: {tipo: numérico, descricao: Nota dada pelo cliente na pesquisa de satisfação (1 a 5), dominio: {min: 1, max: 5}, obrigatorio: false, nulo: pedido sem avaliação, linhagem: "R06 sobre bronze.order_reviews.review_score"}
+      tem_comentario: {tipo: booleano, descricao: A avaliação contém comentário escrito, dominio: {categorias: [true, false]}, obrigatorio: false, nulo: pedido sem avaliação, linhagem: "R06 sobre bronze.order_reviews.review_comment_message"}
+      flag_entregue_valido: {tipo: booleano, descricao: "Pedido entregue, com data de entrega e sem inconsistência temporal (base das análises de prazo)", dominio: {categorias: [true, false]}, obrigatorio: true, linhagem: "status = delivered e não R08"}
+      flag_inconsistencia_temporal: {tipo: booleano, descricao: Pedido com datas contraditórias (R08), dominio: {categorias: [true, false]}, obrigatorio: true, linhagem: "R08 sobre bronze.orders"}
+
+  dim_cliente:
+    descricao: Dimensão cliente (1 linha por customer_id, ou seja, por pedido; cliente_unico_id identifica a pessoa).
+    chave: sk_cliente
+    atributos:
+      sk_cliente: {tipo: chave, descricao: Chave substituta, dominio: {min: 1, max: 1000000}, obrigatorio: true, linhagem: "G08"}
+      cliente_id: {tipo: chave, descricao: Identificador do cliente no pedido (hash), dominio: {regex: "^[0-9a-f]{32}$"}, obrigatorio: true, linhagem: "bronze.customers.customer_id"}
+      cliente_unico_id: {tipo: texto, descricao: Identificador da pessoa (permite identificar recompra), dominio: {regex: "^[0-9a-f]{32}$"}, obrigatorio: true, linhagem: "bronze.customers.customer_unique_id"}
+      cep_prefixo: {tipo: categórico, descricao: 5 primeiros dígitos do CEP, dominio: {regex: "^[0-9]{5}$"}, obrigatorio: true, linhagem: "bronze.customers.customer_zip_code_prefix (R02)"}
+      cidade: {tipo: texto, descricao: Município do cliente, dominio: {regex: "^[a-zà-ú' \\-]+$"}, obrigatorio: true, linhagem: "bronze.customers.customer_city (R03)"}
+      uf: {tipo: categórico, descricao: Unidade da Federação, dominio: {categorias: [AC, AL, AP, AM, BA, CE, DF, ES, GO, MA, MT, MS, MG, PA, PB, PR, PE, PI, RJ, RN, RS, RO, RR, SC, SP, SE, TO]}, obrigatorio: true, linhagem: "bronze.customers.customer_state (R03)"}
+      regiao: {tipo: categórico, descricao: Macrorregião do IBGE, dominio: {categorias: [Norte, Nordeste, Centro-Oeste, Sudeste, Sul]}, obrigatorio: true, linhagem: "G07 sobre uf"}
+      lat: {tipo: numérico, descricao: Latitude do centroide do prefixo de CEP, dominio: {min: -33.8, max: 5.3}, obrigatorio: false, nulo: CEP ausente da base de geolocalização, linhagem: "R05 sobre bronze.geolocation"}
+      lng: {tipo: numérico, descricao: Longitude do centroide do prefixo de CEP, dominio: {min: -74.0, max: -34.7}, obrigatorio: false, nulo: CEP ausente da base de geolocalização, linhagem: "R05 sobre bronze.geolocation"}
+
+  dim_vendedor:
+    descricao: Dimensão vendedor (1 linha por vendedor; sk = -1 representa "desconhecido", G02).
+    chave: sk_vendedor
+    atributos:
+      sk_vendedor: {tipo: chave, descricao: Chave substituta, dominio: {min: -1, max: 1000000}, obrigatorio: true, linhagem: "G08"}
+      vendedor_id: {tipo: chave, descricao: Identificador do vendedor (hash), dominio: {regex: "^([0-9a-f]{32}|desconhecido)$"}, obrigatorio: true, linhagem: "bronze.sellers.seller_id"}
+      cep_prefixo: {tipo: categórico, descricao: 5 primeiros dígitos do CEP, dominio: {regex: "^([0-9]{5}|desconhecido)$"}, obrigatorio: true, linhagem: "bronze.sellers.seller_zip_code_prefix (R02)"}
+      cidade: {tipo: texto, descricao: Município do vendedor, dominio: {regex: "^[a-zà-ú' \\-]+$"}, obrigatorio: true, linhagem: "bronze.sellers.seller_city (R03)"}
+      uf: {tipo: categórico, descricao: Unidade da Federação, dominio: {categorias: [AC, AL, AP, AM, BA, CE, DF, ES, GO, MA, MT, MS, MG, PA, PB, PR, PE, PI, RJ, RN, RS, RO, RR, SC, SP, SE, TO, desconhecido]}, obrigatorio: true, linhagem: "bronze.sellers.seller_state (R03)"}
+      regiao: {tipo: categórico, descricao: Macrorregião do IBGE, dominio: {categorias: [Norte, Nordeste, Centro-Oeste, Sudeste, Sul, desconhecido]}, obrigatorio: true, linhagem: "G07 sobre uf"}
+      lat: {tipo: numérico, descricao: Latitude do centroide do prefixo de CEP, dominio: {min: -33.8, max: 5.3}, obrigatorio: false, nulo: CEP ausente da base de geolocalização, linhagem: "R05 sobre bronze.geolocation"}
+      lng: {tipo: numérico, descricao: Longitude do centroide do prefixo de CEP, dominio: {min: -74.0, max: -34.7}, obrigatorio: false, nulo: CEP ausente da base de geolocalização, linhagem: "R05 sobre bronze.geolocation"}
+
+  dim_produto:
+    descricao: Dimensão produto (1 linha por produto; sk = -1 representa "desconhecido", G02).
+    chave: sk_produto
+    atributos:
+      sk_produto: {tipo: chave, descricao: Chave substituta, dominio: {min: -1, max: 1000000}, obrigatorio: true, linhagem: "G08"}
+      produto_id: {tipo: chave, descricao: Identificador do produto (hash), dominio: {regex: "^([0-9a-f]{32}|desconhecido)$"}, obrigatorio: true, linhagem: "bronze.products.product_id"}
+      categoria: {tipo: categórico, descricao: "Categoria do produto em português (sem_categoria quando ausente na origem)", dominio: {regex: "^[a-z0-9_]+$"}, obrigatorio: true, linhagem: "bronze.products.product_category_name (R03, R07)"}
+      categoria_en: {tipo: categórico, descricao: Categoria em inglês, dominio: {regex: "^[a-z0-9_]+$"}, obrigatorio: true, linhagem: "bronze.category_translation (R07, tradução manual de 2 categorias)"}
+      peso_g: {tipo: numérico, descricao: Peso do produto em gramas, dominio: {min: 1, max: 50000}, obrigatorio: false, nulo: "ausente ou igual a 0 na origem (R07)", linhagem: "bronze.products.product_weight_g"}
+      comprimento_cm: {tipo: numérico, descricao: Comprimento da embalagem (cm), dominio: {min: 1, max: 200}, obrigatorio: false, nulo: "ausente na origem", linhagem: "bronze.products.product_length_cm"}
+      altura_cm: {tipo: numérico, descricao: Altura da embalagem (cm), dominio: {min: 1, max: 200}, obrigatorio: false, nulo: "ausente na origem", linhagem: "bronze.products.product_height_cm"}
+      largura_cm: {tipo: numérico, descricao: Largura da embalagem (cm), dominio: {min: 1, max: 200}, obrigatorio: false, nulo: "ausente na origem", linhagem: "bronze.products.product_width_cm"}
+      volume_cm3: {tipo: numérico, descricao: Volume da embalagem (comprimento x altura x largura), dominio: {min: 1, max: 8000000}, obrigatorio: false, nulo: alguma dimensão ausente, linhagem: "derivado das três dimensões"}
+      qtd_fotos: {tipo: numérico, descricao: Quantidade de fotos no anúncio, dominio: {min: 1, max: 30}, obrigatorio: false, nulo: "ausente na origem (produtos sem categoria)", linhagem: "bronze.products.product_photos_qty"}
+      qtd_caracteres_nome: {tipo: numérico, descricao: Tamanho do nome do produto, dominio: {min: 1, max: 200}, obrigatorio: false, nulo: "ausente na origem", linhagem: "bronze.products.product_name_lenght (R04)"}
+      qtd_caracteres_descricao: {tipo: numérico, descricao: Tamanho da descrição do produto, dominio: {min: 1, max: 10000}, obrigatorio: false, nulo: "ausente na origem", linhagem: "bronze.products.product_description_lenght (R04)"}
+
+  dim_tempo:
+    descricao: Calendário contínuo (role-playing para datas de compra, prometida e entrega; sk = -1 representa data ausente).
+    chave: sk_data
+    atributos:
+      sk_data: {tipo: chave, descricao: Data no formato aaaammdd, dominio: {min: -1, max: 20181231}, obrigatorio: true, linhagem: "gerado (sequence)"}
+      data: {tipo: data, descricao: Data do calendário, dominio: {min: "2016-01-01", max: "2018-12-31"}, obrigatorio: false, nulo: membro desconhecido, linhagem: "gerado"}
+      ano: {tipo: numérico, descricao: Ano, dominio: {min: 2016, max: 2018}, obrigatorio: false, nulo: membro desconhecido, linhagem: "derivado de data"}
+      trimestre: {tipo: numérico, descricao: Trimestre, dominio: {min: 1, max: 4}, obrigatorio: false, nulo: membro desconhecido, linhagem: "derivado de data"}
+      mes: {tipo: numérico, descricao: Mês, dominio: {min: 1, max: 12}, obrigatorio: false, nulo: membro desconhecido, linhagem: "derivado de data"}
+      nome_mes: {tipo: categórico, descricao: Nome do mês, dominio: {categorias: [janeiro, fevereiro, março, abril, maio, junho, julho, agosto, setembro, outubro, novembro, dezembro, desconhecido]}, obrigatorio: true, linhagem: "derivado de data"}
+      ano_mes: {tipo: categórico, descricao: Ano e mês (aaaa-mm), dominio: {regex: "^(20[0-9]{2}-[0-9]{2}|desconhecido)$"}, obrigatorio: true, linhagem: "derivado de data"}
+      dia: {tipo: numérico, descricao: Dia do mês, dominio: {min: 1, max: 31}, obrigatorio: false, nulo: membro desconhecido, linhagem: "derivado de data"}
+      dia_semana: {tipo: numérico, descricao: "Dia da semana (1 = domingo ... 7 = sábado)", dominio: {min: 1, max: 7}, obrigatorio: false, nulo: membro desconhecido, linhagem: "derivado de data"}
+      nome_dia_semana: {tipo: categórico, descricao: Nome do dia da semana, dominio: {categorias: [domingo, segunda, terça, quarta, quinta, sexta, sábado, desconhecido]}, obrigatorio: true, linhagem: "derivado de data"}
+      fim_de_semana: {tipo: booleano, descricao: Sábado ou domingo, dominio: {categorias: [true, false]}, obrigatorio: false, nulo: membro desconhecido, linhagem: "derivado de data"}

@@ -1,0 +1,11 @@
+# Dados brutos e lakehouse não são versionados (licença CC BY-NC-SA; volume)
+*.csv
+data/
+mvp_olist_work/
+mvp_olist_cloud/
+spark-warehouse/
+metastore_db/
+derby.log
+__pycache__/
+.ipynb_checkpoints/
+.DS_Store
