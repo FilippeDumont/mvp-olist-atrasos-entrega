@@ -36,9 +36,10 @@
 
 ## 1. Objetivo
 
-> Esta seção foi escrita **antes** da escolha final da base e da execução das demais etapas.
-> Conforme a orientação do trabalho, ela se mantém **íntegra**: as perguntas não foram alteradas
-> após os resultados, e o atingimento de cada uma é discutido na [Autoavaliação](#7-autoavaliação).
+> Esta seção foi escrita **antes** da construção do pipeline e de qualquer análise. Conforme a
+> orientação do trabalho, ela se mantém **íntegra**: as perguntas e hipóteses não foram alteradas
+> após os resultados, inclusive as que acabaram refutadas, e o atingimento de cada uma é discutido na
+> [Autoavaliação](#7-autoavaliação).
 
 ### 1.1 Problema
 
@@ -73,7 +74,7 @@ ao cliente, e o seu efeito sobre a **nota de avaliação** (de 1 a 5).
 
 | Dimensão | Pergunta | Evidência neste trabalho |
 |---|---|---|
-| Viabilidade técnica | A solução pode ser construída com a tecnologia disponível? | Pipeline executado ponta a ponta no Colab, com dados persistidos no Google Drive ([evidências](#56-evidências-de-execução-na-nuvem)) |
+| Viabilidade técnica | A solução pode ser construída com a tecnologia disponível? | Pipeline executado ponta a ponta no Colab, com dados persistidos no Google Drive ([evidências](#57-evidências-de-execução-na-nuvem)) |
 | Viabilidade financeira | É economicamente sustentável? | Custo zero de infraestrutura: Colab gratuito e Drive com 15 GB gratuitos para 126 MB brutos e 120 MB no lakehouse |
 | Desejabilidade | É o que o "usuário", a operação do marketplace, precisa? | Perguntas ligadas a decisões concretas, respondidas com dados e um plano de ação ([6.3](#63-discussão-geral)) |
 
@@ -105,7 +106,7 @@ flowchart LR
 |---|---|---|
 | Processamento | Google Colab + **PySpark 3.5** | Requisito da disciplina; o Spark mantém o pipeline escalável e com SQL nativo |
 | Formato de armazenamento | **Delta Lake 3.2** | Transações ACID, esquema garantido e **histórico de versões** de cada carga (*time travel*) |
-| Persistência | **Google Drive** (`MyDrive/mvp_olist/`) | Nuvem gratuita, integrada ao Colab e auditável pelo professor |
+| Persistência | **Google Drive** (`MyDrive/mvp_olist/`) | Nuvem gratuita e integrada ao Colab; a persistência é comprovada pelas evidências e pelo histórico de versões Delta |
 | Arquitetura | **Medalhão** (Bronze → Silver → Gold) | Separa dado bruto, dado tratado e dado analítico, o que garante rastreabilidade |
 | Orquestração | Notebook [`00_pipeline`](notebooks/00_pipeline.ipynb) + log Delta | Executa as etapas em sequência e registra etapa, destino, linhas, duração e status |
 
@@ -130,8 +131,8 @@ Delta são imutáveis, então a sincronização preserva o histórico de versõe
 | Volume | **126,2 MB**, **1.550.922 linhas** no total |
 | Data da coleta | **09/11/2026** (registrada em `raw/manifesto_coleta.json` e na coluna `_data_coleta` da Bronze) |
 
-A base foi escolhida **depois** de definidos o problema e as perguntas, por ser a única base pública
-brasileira que reúne, no nível do pedido, a **data prometida**, as **datas de cada etapa logística**
+A base foi escolhida junto com o tema (logística de e-commerce), por ser uma das poucas bases públicas
+brasileiras que reúnem, no nível do pedido, a **data prometida**, as **datas de cada etapa logística**
 (aprovação, postagem e entrega), a **localização** de cliente e vendedor e a **avaliação** do cliente.
 Essas são exatamente as variáveis que as perguntas P1–P6 exigem.
 
@@ -237,7 +238,24 @@ Assim, o catálogo deixa de ser só documentação e passa a ser um **contrato v
 | R08 | **Consistência temporal**: 203 pedidos com datas contraditórias são **sinalizados** (`dq_*`), não apagados | Excluídos das métricas de prazo, sem perder rastreabilidade |
 | A01 | **Recorte de análise**: compras de jan/2017 a ago/2018, os 20 meses completos | Os meses das pontas têm volume residual ou pedidos ainda em trânsito ([6.1](#61-qualidade-dos-dados)) |
 
-### 5.3 Verificações automáticas de carga
+### 5.3 Junções e conciliação entre conjuntos de dados
+
+A tabela fato reúne **seis conjuntos de dados** da origem. Como eles têm grãos diferentes, cada um é
+primeiro **agregado ao grão do pedido** e só depois unido, o que evita duplicar linhas:
+
+| Conjunto (Silver) | Grão original | Como entra na `fato_pedido` | Tipo de junção |
+|---|---|---|---|
+| `pedidos` | 1 por pedido | Base da fato: status, datas e flags de consistência | — |
+| `itens_pedido` | 1 por item | Agregado por pedido: nº de itens e vendedores, soma de preço e frete, maior prazo-limite de postagem. O item de maior preço define o vendedor e o produto principais (G01) | `LEFT` (775 pedidos sem itens) |
+| `pagamentos` | 1 por pagamento | Agregado por pedido: soma dos valores, tipo de maior valor, máximo de parcelas (G09) | `LEFT` (1 pedido sem pagamento) |
+| `avaliacoes` | 1 por avaliação | Já deduplicado para 1 por pedido (R06) | `LEFT` (768 pedidos sem avaliação) |
+| `clientes` / `vendedores` | 1 por cliente-pedido / vendedor | Chaves substitutas das dimensões e UF para a flag `mesma_uf` | `LEFT` |
+| `geolocalizacao_cep` | 1 por prefixo de CEP | Coordenadas do cliente e do vendedor para a distância (G05) | `LEFT` (CEPs sem coordenada → distância nula) |
+
+Todas as junções são `LEFT` a partir de `pedidos`, para que nenhum pedido se perca. A verificação
+"linhas da fato = pedidos da Silver" (abaixo) comprova que nenhuma junção duplicou ou eliminou pedidos.
+
+### 5.4 Verificações automáticas de carga
 
 O notebook 03 **interrompe o pipeline** se alguma das verificações falhar:
 
@@ -247,13 +265,13 @@ O notebook 03 **interrompe o pipeline** se alguma das verificações falhar:
 | `pedido_id` único na fato | ✅ |
 | Integridade referencial: 7 chaves estrangeiras (cliente, vendedor, produto e 3 datas) | ✅ 0 órfãos |
 
-### 5.4 Log de execução
+### 5.5 Log de execução
 
 Cada etapa grava uma linha na tabela Delta `logs/pipeline_log`, com `run_id`, etapa, destino, linhas,
 duração e status. Uma execução completa produz **25 registros**, um por tabela gravada, e leva de
 5 a 15 minutos, dependendo da máquina do Colab.
 
-### 5.5 Persistência na nuvem
+### 5.6 Persistência na nuvem
 
 Estrutura final no Google Drive (`MyDrive/mvp_olist/`):
 
@@ -267,7 +285,7 @@ mvp_olist/
 └── evidencias/graficos/  8 gráficos PNG
 ```
 
-### 5.6 Evidências de execução na nuvem
+### 5.7 Evidências de execução na nuvem
 
 __EVIDENCIAS__
 
@@ -283,17 +301,17 @@ atributos** da camada Silver (perfil de completude, cardinalidade e faixa) e ver
 
 | Dimensão | Principais achados | Tratamento |
 |---|---|---|
-| **Completude** | As datas ausentes correspondem a fases não atingidas (cancelado, em trânsito). Os 610 produtos sem categoria são os mesmos sem nome, descrição e fotos. Título e comentário das avaliações são opcionais (88% e 59% nulos). 279 CEPs de clientes não têm coordenada | Ausências legítimas documentadas no catálogo; categoria `sem_categoria`; distância nula só afeta a P2 |
+| **Completude** | As datas ausentes correspondem a fases não atingidas (cancelado, em trânsito). Os 610 produtos sem categoria são os mesmos sem nome, descrição e fotos. Título e comentário das avaliações são opcionais (88% e 59% nulos). 279 CEPs de clientes não têm coordenada. A cidade da base de geolocalização foi descartada na Silver (grafia inconsistente e redundante) | Ausências legítimas documentadas no catálogo; categoria `sem_categoria`; distância nula só afeta a P2 |
 | **Unicidade** | Todas as chaves das camadas Silver e Gold são únicas. Na origem: 814 `review_id` repetidos, 551 avaliações a mais em pedidos já avaliados e 261.831 linhas duplicadas na geolocalização | R06 (1 avaliação por pedido) e R05 (agregação por CEP) |
 | **Consistência** | 0 registros órfãos entre tabelas. 203 pedidos (0,20%) com datas contraditórias, como postagem antes da compra (166) e entrega antes da postagem (23) | R08 sinaliza; G06 exclui das métricas de prazo |
-| **Conformidade** | 11 de 69 atributos têm algum valor fora do domínio declarado. Exemplos: cidades de vendedor com UF, país, CEP ou até e-mail no lugar do nome; pagamento `not_defined`; parcelas = 0 | Nenhum desses atributos entra nas perguntas; documentados |
-| **Acurácia** | 42 coordenadas fora do Brasil; peso 0; prazo-limite de postagem em 2020; prazos de entrega acima de 120 dias (0,04%) | R05, R07; uso de **medianas, percentuais e taxas**, robustos a extremos |
+| **Conformidade** | 11 de 69 atributos têm algum valor fora do domínio declarado. Cinco são de conformidade: cidades de vendedor com UF, país, CEP ou até e-mail no lugar do nome; pagamento `not_defined`; parcelas = 0. Os outros seis são prazos fora da faixa esperada (ver Acurácia) | Os atributos com problema de conformidade não entram nas perguntas; documentados |
+| **Acurácia** | 42 coordenadas fora do Brasil; peso 0; prazo-limite de postagem em 2020; prazos extremos, como entregas acima de 120 dias (0,04%) | R05, R07; os prazos extremos são atrasos reais e foram mantidos, com uso de **medianas, percentuais e taxas**, robustos a extremos |
 | **Atualidade** | As pontas do período estão incompletas: set–dez/2016 com poucos pedidos e set–out/2018 com só 20 pedidos, nenhum entregue. Os dados são de 2016–2018 | **A01:** análise de jan/2017 a ago/2018; atualidade discutida na autoavaliação |
 
 **Conclusão da qualidade:** a base tem problemas reais, mas **localizados e tratáveis**. Os atributos
 centrais das perguntas (datas de compra, postagem, entrega e promessa; nota; UF) estão completos e
-coerentes em mais de 99,8% dos pedidos entregues. Os problemas de conformidade estão em atributos que
-não entram na análise.
+coerentes em mais de 99,8% dos pedidos. Os problemas de conformidade estão em atributos que não entram
+na análise, e os prazos extremos são tratados com estatísticas robustas.
 
 ### 6.2 Respostas às perguntas de negócio
 
@@ -315,7 +333,7 @@ Todas as tabelas, testes e gráficos estão no notebook [`05_analise`](notebooks
   com mais de uma semana, cerca de 80%.
 - O cliente **pune o atraso, mas não premia a antecipação**: entregar 15 dias antes rende a mesma
   nota que entregar 1 semana antes, com cerca de 9% de notas baixas.
-- Na **regressão logística**, controlando valor, frete, número de itens e de vendedores e região, o
+- Na **regressão logística**, controlando valor, participação do frete, número de itens e de vendedores e região, o
   atraso multiplica a chance de nota baixa por **18,3** (IC 95%: 17,3–19,4). É o maior efeito do
   modelo, à frente de pedidos com vários vendedores (3,5) ou vários itens (2,7).
 - Depois de controlar o atraso, a região do cliente **perde relevância**: a insatisfação regional
@@ -349,7 +367,7 @@ Todas as tabelas, testes e gráficos estão no notebook [`05_analise`](notebooks
   novembro. A taxa de atraso subiu para **17,3%, contra 9,2%**, com postagem e transporte mais lentos.
   É saturação de capacidade, como a hipótese previa.
 - **Fevereiro e março de 2018** tiveram os maiores picos (**14,1% e 19,0%**) com volume parecido ao de
-  janeiro (5,7%). O tempo de postagem ficou estável e o de **transporte** subiu de 10,5 para cerca de
+  janeiro, quando a taxa foi de só 5,7%. O tempo de postagem ficou estável e o de **transporte** subiu de 10,5 para cerca de
   13 dias: um choque externo. Em março, o pico coincide com a **greve nacional dos Correios iniciada
   em 12/03/2018** (Agência Brasil, 2018).
 
@@ -365,7 +383,7 @@ Todas as tabelas, testes e gráficos estão no notebook [`05_analise`](notebooks
 - Em **72%** dos atrasos, o vendedor postou o pacote **no prazo**.
 - Dos ~23 dias a mais que um pedido atrasado leva, **19,9 estão no transporte** e só 3,0 na postagem.
   O transporte responde por **87% do tempo excedente**.
-- O vendedor ainda importa: postar atrasado **quadruplica** o risco de atraso. Esses pedidos são só
+- O vendedor ainda importa: postar atrasado **quase quadruplica** o risco de atraso (21,1% contra 5,4%). Esses pedidos são só
   8,9% do total, um alvo pequeno e de alto retorno.
 
 #### P5 · O prazo prometido está calibrado? → **parcialmente confirmada: a folga é grande e mal distribuída, mas não é desperdício**
@@ -388,7 +406,7 @@ Todas as tabelas, testes e gráficos estão no notebook [`05_analise`](notebooks
 | Modelo (treino 2017 → teste jan–ago/2018) | AUC-ROC | Precisão média | Atraso no decil de maior risco | Lift |
 |---|---:|---:|---:|---:|
 | **Regressão logística** | **0,673** | 0,142 | **15,8%** | **2,0×** |
-| Gradient boosting | 0,631 | 0,118 | 14,1% | 1,8× |
+| Gradient boosting | 0,611 | 0,118 | 14,2% | 1,8× |
 | *Taxa-base do teste* | — | 0,077 | 7,7% | 1,0× |
 
 ![P6](evidencias/graficos/p6_lift_por_decil.png)
