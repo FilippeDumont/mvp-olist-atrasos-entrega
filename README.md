@@ -119,9 +119,10 @@ Delta são imutáveis, então a sincronização preserva o histórico de versõe
 > com persistência no Google Drive. Em 09/11/2026, porém, o Colab gratuito não alocou máquina
 > (*"Não há back-ends disponíveis"*) em sucessivas tentativas, em dois navegadores diferentes.
 > Para não atrasar a entrega, **o mesmo código foi executado em uma máquina virtual Linux em nuvem,
-> fora do Colab**, com PySpark 3.5 e Delta Lake 3.2. O lakehouse ficou gravado no disco persistente
-> dessa VM, e os artefatos de controle (manifesto da coleta, log das cargas e indicadores) foram
-> gravados no Google Drive, em `MyDrive/mvp_olist/`. As saídas que aparecem nos notebooks e as
+> fora do Colab**, com PySpark 3.5 e Delta Lake 3.2. O lakehouse ficou gravado no disco dessa VM, que
+> não é um armazenamento permanente, e os artefatos de controle (manifesto da coleta, log das cargas e
+> indicadores) foram gravados no Google Drive, em `MyDrive/mvp_olist/`. Antes da entrega, o pipeline será
+> executado novamente no Colab, o que grava o lakehouse completo no Drive. As saídas que aparecem nos notebooks e as
 > evidências da seção [5.7](#57-evidências-de-execução-na-nuvem) são dessa execução real. Os notebooks
 > continuam prontos para o Colab: pelo botão "Abrir no Colab", o lakehouse completo é gravado no Drive.
 
@@ -274,7 +275,9 @@ O notebook 03 **interrompe o pipeline** se alguma das verificações falhar:
 |---|---|
 | Linhas da fato = pedidos da Silver (unicidade do grão) | ✅ 99.441 = 99.441 |
 | `pedido_id` único na fato | ✅ |
-| Integridade referencial: 7 chaves estrangeiras (cliente, vendedor, produto e 3 datas) | ✅ 0 órfãos |
+| Integridade referencial: 6 chaves estrangeiras (cliente, vendedor, produto e 3 datas) | ✅ 0 órfãos |
+
+Ao todo, são **8 verificações** (2 de grão e 6 de chaves estrangeiras), todas aprovadas ([E5](#57-evidências-de-execução-na-nuvem)).
 
 ### 5.5 Log de execução
 
@@ -284,8 +287,8 @@ de 09/11/2026, o pipeline completo levou **4,4 minutos**.
 
 ### 5.6 Persistência na nuvem
 
-Estrutura do lakehouse (no Colab, em `MyDrive/mvp_olist/`; na execução de 09/11/2026, no disco persistente
-da VM, com os artefatos de controle copiados para o Google Drive):
+Estrutura do lakehouse (no Colab, em `MyDrive/mvp_olist/`; na execução de 09/11/2026, no disco da VM, com os
+artefatos de controle copiados para o Google Drive):
 
 ```
 mvp_olist/
@@ -318,7 +321,7 @@ Os notebooks com todas as saídas estão em [`notebooks/`](notebooks/).
 
 ![E4](evidencias/execucao/e4_historico_delta.png)
 
-**E5 · Verificações de carga:** unicidade do grão e integridade das 7 chaves estrangeiras (notebook 03).
+**E5 · Verificações de carga:** unicidade do grão e integridade das 6 chaves estrangeiras (notebook 03).
 
 ![E5](evidencias/execucao/e5_verificacoes_carga.png)
 
@@ -374,7 +377,7 @@ Todas as tabelas, testes e gráficos estão no notebook [`05_analise`](notebooks
   com mais de uma semana, cerca de 80%.
 - O cliente **pune o atraso, mas não premia a antecipação**: entregar 15 dias antes rende a mesma
   nota que entregar 1 semana antes, com cerca de 9% de notas baixas.
-- Na **regressão logística**, controlando valor, participação do frete, número de itens e de vendedores e região, o
+- Na **regressão logística**, controlando valor, participação do frete, número de itens e de vendedores e região,
   a razão de chances (*odds ratio*) de nota baixa com atraso é **18,3** (IC 95%: 17,3–19,4). É o maior efeito do
   modelo, à frente de pedidos com vários vendedores (3,5) ou vários itens (2,7).
 - Depois de controlar o atraso, a região do cliente **perde relevância**: a insatisfação regional
@@ -396,6 +399,9 @@ Todas as tabelas, testes e gráficos estão no notebook [`05_analise`](notebooks
 - **O Rio de Janeiro surpreende:** mesmo perto do polo vendedor, de onde saem 83,5% dos pedidos, tem
   **12,2%** de atraso e responde sozinho por **22,9% de todos os atrasos**, quase o mesmo que São Paulo
   (27,8%), que recebe três vezes mais pedidos.
+- **Tamanho da oportunidade:** se o RJ e os estados do Nordeste tivessem a taxa média do Sudeste
+  (6,1%), cerca de **1.340 atrasos (20% do total)** deixariam de existir, e a taxa geral cairia de
+  **6,8% para 5,4%**.
 
 ![P2 rota](evidencias/graficos/p2_atraso_por_rota.png)
 
@@ -452,8 +458,8 @@ Todas as tabelas, testes e gráficos estão no notebook [`05_analise`](notebooks
 
 ![P6](evidencias/graficos/p6_lift_por_decil.png)
 
-- O decil de maior risco previsto atrasa **o dobro da média**, e o de menor risco atrasa só **1,0%**.
-  Isso basta para **priorizar** pedidos, mas não para prever cada um.
+- O decil de maior risco previsto atrasa **o dobro da média** e concentra **20% de todos os atrasos**
+  do período; o de menor risco atrasa só **1,0%**. Isso basta para **priorizar** pedidos, mas não para prever cada um.
 - Os sinais mais fortes são a sazonalidade (novembro e dezembro), a rota (mesma UF protege) e o destino
   Nordeste.
 - O limite do modelo são os choques externos, como a greve de 2018, que nenhuma variável disponível
@@ -472,13 +478,16 @@ A hipótese central foi **confirmada em sua maior parte**, com nuances que mudam
    **reduzir a variabilidade do transporte** nas rotas críticas, com a previsão de risco (P6) ajudando
    a priorizar onde agir.
 
-| Prioridade | Ação recomendada | Evidência |
-|---|---|---|
-| 1 | Acordo de nível de serviço com transportadoras por destino, focado em **RJ e Nordeste** | P2, P4 |
-| 2 | **Plano de capacidade** para datas comerciais (Black Friday) | P3 |
-| 3 | Promessa de prazo **por rota e época**, com folga proporcional à variabilidade | P5, P6 |
-| 4 | **Alerta proativo** ao cliente nos pedidos do decil de maior risco | P1, P6 |
-| 5 | Cobrança do prazo de postagem aos vendedores reincidentes | P4 |
+| Prioridade | Ação recomendada | Evidência | Indicador a acompanhar |
+|---|---|---|---|
+| 1 | Acordo de nível de serviço com transportadoras por destino, focado em **RJ e Nordeste** | P2, P4 | Taxa de atraso por UF de destino; dias de transporte por rota |
+| 2 | **Plano de capacidade** para datas comerciais (Black Friday) | P3 | Taxa de atraso nas semanas de pico |
+| 3 | Promessa de prazo **por rota e época**, com folga proporcional à variabilidade | P5, P6 | Folga e taxa de atraso por rota |
+| 4 | **Alerta proativo** ao cliente nos pedidos do decil de maior risco | P1, P6 | % de notas 1–2; atraso no decil de maior risco |
+| 5 | Cobrança do prazo de postagem aos vendedores reincidentes | P4 | % de postagens no prazo por vendedor |
+
+Cada ação tem um indicador para verificar se deu resultado, e todos podem ser calculados pelo mesmo
+pipeline a partir da `fato_pedido`.
 
 ---
 
